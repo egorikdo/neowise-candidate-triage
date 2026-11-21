@@ -5,31 +5,77 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Входящие заявки</title>
   <style>
-    body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; font: 1rem/1.5 system-ui, sans-serif; }
-    textarea { box-sizing: border-box; display: block; width: 100%; margin: .5rem 0; padding: .5rem; font: inherit; }
-    button { padding: .4rem .8rem; font: inherit; }
-    pre { white-space: pre-wrap; }
+    body { max-width: 40rem; margin: 3rem auto; padding: 0 1rem; font: 1rem/1.5 system-ui, sans-serif; }
+    textarea { box-sizing: border-box; display: block; width: 100%; margin: .5rem 0 1rem; padding: .75rem; font: inherit; resize: vertical; }
+    button { padding: .6rem 1rem; font: inherit; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .6; }
+    #result { margin-top: 2rem; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
   </style>
 </head>
 <body>
-  <h1>Входящие заявки</h1>
-  <form>
-    <label for="message">Текст заявки</label>
-    <textarea id="message" rows="4"></textarea>
-    <button type="submit">Разобрать заявку</button>
-  </form>
-  <pre id="result" aria-live="polite"></pre>
+  <main>
+    <h1>Входящие заявки</h1>
+    <form>
+      <label for="message">Текст заявки</label>
+      <textarea id="message" rows="5"></textarea>
+      <button type="submit">Разобрать заявку</button>
+    </form>
+    <section id="result" aria-live="polite" aria-atomic="true"></section>
+  </main>
   <script type="module">
     const form = document.querySelector("form");
+    const input = document.querySelector("#message");
+    const button = form.querySelector("button");
     const result = document.querySelector("#result");
+    const topics = { delivery: "Доставка", pricing: "Стоимость", other: "Другое" };
+    const manualReview = "Автоматический разбор недоступен. Проверьте заявку и подготовьте ответ вручную.";
+
+    function showDraft(data) {
+      const topic = document.createElement("p");
+      topic.textContent = `Тема: ${topics[data.topic]}`;
+
+      const heading = document.createElement("h2");
+      heading.textContent = "Черновик ответа";
+
+      const draft = document.createElement("pre");
+      draft.textContent = data.draft;
+      result.replaceChildren(topic, heading, draft);
+    }
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const reply = await fetch("/api/triage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: document.querySelector("#message").value }),
-      });
-      result.textContent = JSON.stringify(await reply.json(), null, 2);
+      result.replaceChildren();
+
+      if (!input.value.trim()) {
+        result.textContent = "Введите текст заявки.";
+        return;
+      }
+
+      button.disabled = true;
+      result.textContent = "Разбираем заявку…";
+
+      try {
+        const response = await fetch("/api/triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: input.value }),
+        });
+        const data = await response.json();
+
+        if (response.ok && data?.status === "ready" &&
+            Object.hasOwn(topics, data.topic) && typeof data.draft === "string" && data.draft.trim()) {
+          showDraft(data);
+        } else if (response.status === 400 && data?.status === "invalid_input") {
+          result.textContent = "Введите текст заявки.";
+        } else {
+          result.textContent = manualReview;
+        }
+      } catch {
+        result.textContent = manualReview;
+      } finally {
+        button.disabled = false;
+      }
     });
   </script>
 </body>
